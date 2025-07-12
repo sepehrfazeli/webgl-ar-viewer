@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebGL/AR 3D Model Viewer</title>
+  </head>
+  <body>
+    <div id="app">
+      <div id="controls">
+        <h1>3D Model Viewer</h1>
+        <div id="model-controls">
+          <input type="file" id="model-input" accept=".glb,.gltf,.stl" title="Upload 3D model file" />
+          <button id="ar-button" disabled>Enter AR Mode</button>
+        </div>
+        <div id="loading">Loading model...</div>
+        <div id="error"></div>
+      </div>
+      <div id="viewer-container"></div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

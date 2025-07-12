@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGL/AR 3D Model Viewer - Simple Version</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background-color: #f0f0f0;
+        }
+
+        #app {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #controls {
+            padding: 20px;
+            background-color: white;
+            border-bottom: 1px solid #ddd;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        #controls h1 {
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 24px;
+        }
+
+        #model-controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        #model-input {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        #ar-button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+
+        #ar-button:hover:not(:disabled) {
+            background-color: #0056b3;
+        }
+
+        #ar-button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        #loading {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #e3f2fd;
+            border-radius: 4px;
+            color: #1976d2;
+            display: none;
+        }
+
+        #error {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #ffebee;
+            border-radius: 4px;
+            color: #c62828;
+            display: none;
+        }
+
+        #viewer-container {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #viewer-container canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .info-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            max-width: 300px;
+            z-index: 100;
+        }
+
+        .node-version-warning {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div id="controls">
+            <h1>WebGL/AR 3D Model Viewer</h1>
+            <div class="node-version-warning">
+                <strong>Note:</strong> You're using Node.js v16.13.0. For the full development experience, please upgrade to Node.js v18+ and run <code>npm run dev</code>.
+                <br>This simple version demonstrates the basic 3D viewer functionality.
+            </div>
+            <div id="model-controls">
+                <label for="model-input">Select model file:</label>
+                <input type="file" id="model-input" accept=".glb,.gltf" aria-label="Upload 3D model file" title="Select a glTF or GLB 3D model file" />
+                <button id="ar-button" disabled>Enter AR Mode</button>
+            </div>
+            <div id="loading">Loading model...</div>
+            <div id="error">Failed to load model</div>
+        </div>
+        <div id="viewer-container">
+            <div class="info-panel">
+                <h3>Basic 3D Model Viewer</h3>
+                <p>• Load glTF/glB models using the file input</p>
+                <p>• Mouse: rotate, zoom, pan</p>
+                <p>• For AR features, upgrade Node.js and use dev server</p>
+            </div>
+        </div>
+    </div>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.178.0/build/three.module.js",
+            "three/examples/jsm/loaders/GLTFLoader.js": "https://unpkg.com/three@0.178.0/examples/jsm/loaders/GLTFLoader.js",
+            "three/examples/jsm/controls/OrbitControls.js": "https://unpkg.com/three@0.178.0/examples/jsm/controls/OrbitControls.js"
+        }
+    }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+        import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+
+        class SimpleModelViewer {
+            constructor(container) {
+                this.container = container;
+                this.scene = null;
+                this.camera = null;
+                this.renderer = null;
+                this.controls = null;
+                this.currentModel = null;
+                
+                this.init();
+            }
+
+            init() {
+                // Create scene
+                this.scene = new THREE.Scene();
+                this.scene.background = new THREE.Color(0xf0f0f0);
+
+                // Create camera
+                this.camera = new THREE.PerspectiveCamera(
+                    75,
+                    this.container.clientWidth / this.container.clientHeight,
+                    0.1,
+                    1000
+                );
+                this.camera.position.set(0, 0, 5);
+
+                // Create renderer
+                this.renderer = new THREE.WebGLRenderer({ antialias: true });
+                this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+                this.renderer.setPixelRatio(window.devicePixelRatio);
+                this.container.appendChild(this.renderer.domElement);
+
+                // Create orbit controls
+                this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+                this.controls.enableDamping = true;
+                this.controls.dampingFactor = 0.05;
+
+                // Set up lighting
+                this.setupLighting();
+
+                // Add resize listener
+                window.addEventListener('resize', () => this.onWindowResize());
+
+                // Start render loop
+                this.animate();
+            }
+
+            setupLighting() {
+                const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+                this.scene.add(ambientLight);
+
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                directionalLight.position.set(5, 5, 5);
+                this.scene.add(directionalLight);
+
+                const pointLight = new THREE.PointLight(0xffffff, 0.3, 100);
+                pointLight.position.set(-5, 5, -5);
+                this.scene.add(pointLight);
+            }
+
+            loadModel(file) {
+                return new Promise((resolve, reject) => {
+                    const loader = new GLTFLoader();
+                    const reader = new FileReader();
+
+                    reader.onload = (event) => {
+                        const arrayBuffer = event.target.result;
+                        
+                        loader.parse(arrayBuffer, '', (gltf) => {
+                            this.clearCurrentModel();
+                            
+                            const model = gltf.scene;
+                            
+                            // Center and scale the model
+                            const box = new THREE.Box3().setFromObject(model);
+                            const center = box.getCenter(new THREE.Vector3());
+                            const size = box.getSize(new THREE.Vector3());
+                            
+                            const maxDim = Math.max(size.x, size.y, size.z);
+                            const scale = 2 / maxDim;
+                            model.scale.multiplyScalar(scale);
+                            model.position.sub(center.multiplyScalar(scale));
+                            
+                            this.scene.add(model);
+                            this.currentModel = model;
+                            
+                            this.camera.position.set(0, 0, 5);
+                            this.controls.reset();
+                            
+                            resolve(model);
+                        }, reject);
+                    };
+
+                    reader.onerror = reject;
+                    reader.readAsArrayBuffer(file);
+                });
+            }
+
+            clearCurrentModel() {
+                if (this.currentModel) {
+                    this.scene.remove(this.currentModel);
+                    this.currentModel = null;
+                }
+            }
+
+            onWindowResize() {
+                this.camera.aspect = this.container.clientWidth / this.container.clientHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(this.container.clientWidth, this.container.clientHeight);
+            }
+
+            animate() {
+                requestAnimationFrame(() => this.animate());
+                this.controls.update();
+                this.renderer.render(this.scene, this.camera);
+            }
+        }
+
+        // Initialize the simple app
+        class SimpleApp {
+            constructor() {
+                this.container = document.getElementById('viewer-container');
+                this.modelInput = document.getElementById('model-input');
+                this.arButton = document.getElementById('ar-button');
+                this.loadingDiv = document.getElementById('loading');
+                this.errorDiv = document.getElementById('error');
+                
+                this.modelViewer = new SimpleModelViewer(this.container);
+                
+                this.setupEventListeners();
+                this.checkARSupport();
+            }
+
+            setupEventListeners() {
+                this.modelInput.addEventListener('change', (event) => {
+                    const file = event.target.files[0];
+                    if (file) {
+                        this.loadModel(file);
+                    }
+                });
+
+                // Drag and drop support
+                this.container.addEventListener('dragover', (event) => {
+                    event.preventDefault();
+                    this.container.style.backgroundColor = '#e3f2fd';
+                });
+
+                this.container.addEventListener('dragleave', () => {
+                    this.container.style.backgroundColor = '';
+                });
+
+                this.container.addEventListener('drop', (event) => {
+                    event.preventDefault();
+                    this.container.style.backgroundColor = '';
+                    
+                    const files = event.dataTransfer.files;
+                    if (files.length > 0) {
+                        this.loadModel(files[0]);
+                    }
+                });
+            }
+
+            checkARSupport() {
+                if ('xr' in navigator) {
+                    navigator.xr.isSessionSupported('immersive-ar').then(supported => {
+                        if (supported) {
+                            this.arButton.disabled = false;
+                            this.arButton.textContent = 'AR Available (use dev server)';
+                        } else {
+                            this.arButton.textContent = 'AR Not Supported';
+                        }
+                    });
+                } else {
+                    this.arButton.textContent = 'WebXR Not Available';
+                }
+            }
+
+            async loadModel(file) {
+                try {
+                    if (!file.name.toLowerCase().match(/\.(glb|gltf)$/)) {
+                        throw new Error('Only glTF (.glb, .gltf) files supported in simple version');
+                    }
+
+                    this.showLoading('Loading model...');
+                    this.hideError();
+                    
+                    await this.modelViewer.loadModel(file);
+                    
+                    this.hideLoading();
+                    console.log('Model loaded successfully');
+                    
+                } catch (error) {
+                    console.error('Model loading failed:', error);
+                    this.showError(`Failed to load model: ${error.message}`);
+                    this.hideLoading();
+                }
+            }
+
+            showLoading(message) {
+                this.loadingDiv.textContent = message;
+                this.loadingDiv.style.display = 'block';
+            }
+
+            hideLoading() {
+                this.loadingDiv.style.display = 'none';
+            }
+
+            showError(message) {
+                this.errorDiv.textContent = message;
+                this.errorDiv.style.display = 'block';
+            }
+
+            hideError() {
+                this.errorDiv.style.display = 'none';
+            }
+        }
+
+        // Initialize when DOM is loaded
+        window.addEventListener('DOMContentLoaded', () => {
+            new SimpleApp();
+        });
+
+        console.log('Simple WebGL 3D Model Viewer initialized');
+    </script>
+</body>
+</html>
