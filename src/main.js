@@ -221,8 +221,92 @@ class WebGLARApp {
     }
   }
 
-  startARSimulation() {
+  async startARSimulation() {
     console.log('📱 Starting iOS AR Simulation');
+    
+    try {
+      // Request camera access for AR background
+      await this.setupCameraBackground();
+      
+      // Switch to fullscreen mobile-friendly view
+      this.isARActive = true;
+      this.arButton.textContent = 'Exit AR Simulation';
+      document.body.classList.add('ar-mode');
+      
+      // Adjust camera for mobile AR-like view
+      this.modelViewer.camera.position.set(0, 0, 3);
+      this.modelViewer.camera.lookAt(0, 0, 0);
+      
+      // Make background transparent to show camera feed
+      this.modelViewer.scene.background = null;
+      this.modelViewer.renderer.setClearColor(0x000000, 0); // Transparent
+      
+      // Position model to appear on a surface (like a table)
+      if (this.currentModel) {
+        this.currentModel.model.position.set(0, -0.5, 0); // Place on surface
+        this.currentModel.model.scale.set(0.3, 0.3, 0.3); // Make smaller for AR
+      }
+      
+      // Add instructions for iOS users
+      this.showError('📱 iOS AR Simulation: Camera active! Move your device to view the model. The model appears on a virtual surface.');
+      
+      // Enable device orientation if available
+      if (window.DeviceOrientationEvent) {
+        this.enableDeviceOrientation();
+      }
+      
+    } catch (error) {
+      console.error('Camera access failed:', error);
+      this.showError('📱 Camera access denied. Using basic AR simulation without camera.');
+      
+      // Fallback to basic AR simulation
+      this.startBasicARSimulation();
+    }
+  }
+
+  async setupCameraBackground() {
+    try {
+      // Request camera access
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { 
+          facingMode: 'environment', // Use back camera
+          width: { ideal: 1280 },
+          height: { ideal: 720 }
+        }
+      });
+      
+      // Create video element for camera feed
+      const videoElement = document.createElement('video');
+      videoElement.srcObject = stream;
+      videoElement.autoplay = true;
+      videoElement.playsInline = true;
+      videoElement.muted = true;
+      
+      // Style video to cover the entire background
+      videoElement.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        object-fit: cover;
+        z-index: -1;
+        background: #000;
+      `;
+      
+      // Add to DOM
+      document.body.appendChild(videoElement);
+      this.arVideoElement = videoElement;
+      
+      console.log('📱 Camera background activated');
+      
+    } catch (error) {
+      throw new Error(`Camera access failed: ${error.message}`);
+    }
+  }
+
+  startBasicARSimulation() {
+    console.log('📱 Starting basic AR simulation (no camera)');
     
     // Switch to fullscreen mobile-friendly view
     this.isARActive = true;
@@ -233,12 +317,17 @@ class WebGLARApp {
     this.modelViewer.camera.position.set(0, 0, 3);
     this.modelViewer.camera.lookAt(0, 0, 0);
     
-    // Change background to be more AR-like
-    this.modelViewer.scene.background = new THREE.Color(0x000000);
-    this.modelViewer.scene.background = null; // Transparent background
+    // Create a simple gradient background to simulate environment
+    this.modelViewer.scene.background = new THREE.Color(0x87CEEB); // Sky blue
+    
+    // Position model to appear on a surface
+    if (this.currentModel) {
+      this.currentModel.model.position.set(0, -0.5, 0);
+      this.currentModel.model.scale.set(0.3, 0.3, 0.3);
+    }
     
     // Add instructions for iOS users
-    this.showError('iOS AR Simulation: Move your device to view the model from different angles. This simulates AR without WebXR.');
+    this.showError('📱 Basic AR Simulation: Move your device to view the model from different angles.');
     
     // Enable device orientation if available
     if (window.DeviceOrientationEvent) {
@@ -286,6 +375,16 @@ class WebGLARApp {
       // Exit iOS AR simulation
       console.log('📱 Exiting iOS AR Simulation');
       
+      // Stop camera feed and remove video element
+      if (this.arVideoElement) {
+        const stream = this.arVideoElement.srcObject;
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+        }
+        this.arVideoElement.remove();
+        this.arVideoElement = null;
+      }
+      
       // Reset camera position
       this.modelViewer.camera.position.set(0, 0, 5);
       this.modelViewer.camera.rotation.set(0, 0, 0);
@@ -293,6 +392,13 @@ class WebGLARApp {
       
       // Reset background
       this.modelViewer.scene.background = new THREE.Color(0xf0f0f0);
+      this.modelViewer.renderer.setClearColor(0xf0f0f0, 1);
+      
+      // Reset model position and scale
+      if (this.currentModel) {
+        this.currentModel.model.position.set(0, 0, 0);
+        this.currentModel.model.scale.set(1, 1, 1);
+      }
       
       // Remove device orientation listener
       window.removeEventListener('deviceorientation', this.handleOrientation);
