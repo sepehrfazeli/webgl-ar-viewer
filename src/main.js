@@ -1,4 +1,5 @@
 import './style.css';
+import * as THREE from 'three';
 import { ModelViewer } from './components/ModelViewer.js';
 import { ARMode } from './components/ARMode.js';
 import { WebXRUtils } from './utils/WebXRUtils.js';
@@ -11,6 +12,8 @@ class WebGLARApp {
     this.modelLoader = null;
     this.currentModel = null;
     this.isARActive = false;
+    this.hasWebXR = false;
+    this.isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     
     this.init();
   }
@@ -20,6 +23,8 @@ class WebGLARApp {
     this.container = document.getElementById('viewer-container');
     this.modelInput = document.getElementById('model-input');
     this.arButton = document.getElementById('ar-button');
+    this.debugButton = document.getElementById('debug-button');
+    this.debugInfo = document.getElementById('debug-info');
     this.loadingDiv = document.getElementById('loading');
     this.errorDiv = document.getElementById('error');
     
@@ -56,6 +61,11 @@ class WebGLARApp {
       }
     });
 
+    // Debug button
+    this.debugButton.addEventListener('click', () => {
+      this.toggleDebugInfo();
+    });
+
     // Drag and drop support
     this.container.addEventListener('dragover', (event) => {
       event.preventDefault();
@@ -79,19 +89,51 @@ class WebGLARApp {
 
   async checkWebXRSupport() {
     try {
+      // Add detailed logging for debugging
+      console.log('Checking WebXR support...');
+      console.log('User Agent:', navigator.userAgent);
+      console.log('HTTPS:', location.protocol === 'https:');
+      console.log('WebXR available:', 'xr' in navigator);
+      
       const support = await WebXRUtils.checkWebXRSupport();
+      console.log('WebXR Support Result:', support);
       
       if (support.ar) {
+        this.hasWebXR = true;
         this.arButton.disabled = false;
         this.arButton.textContent = 'Enter AR Mode';
+        console.log('✅ AR Mode enabled');
       } else {
-        this.arButton.disabled = true;
-        this.arButton.textContent = 'AR Not Supported';
-        this.arButton.title = support.reason;
+        this.hasWebXR = false;
+        
+        // Enable fallback AR for iOS devices with models loaded
+        if (this.isIOS && this.currentModel) {
+          this.arButton.disabled = false;
+          this.arButton.textContent = 'AR Simulation';
+          this.arButton.title = 'Fallback AR mode for iOS (no WebXR)';
+          console.log('📱 iOS AR Simulation enabled');
+        } else if (this.isIOS) {
+          this.arButton.disabled = true;
+          this.arButton.textContent = 'Load Model First';
+          this.arButton.title = support.reason;
+          console.log('📱 iOS: Load model to enable AR simulation');
+        } else {
+          this.arButton.disabled = true;
+          this.arButton.textContent = 'AR Not Supported';
+          this.arButton.title = support.reason;
+          console.log('❌ AR Mode disabled:', support.reason);
+        }
+        
+        // Show debug info for mobile users
+        if (/Mobi|Android/i.test(navigator.userAgent)) {
+          this.showError(`AR Debug: ${support.reason}. Device: ${navigator.userAgent.substring(0, 50)}...`);
+        }
       }
     } catch (error) {
       console.error('WebXR support check failed:', error);
-      this.showError('WebXR support check failed');
+      this.arButton.disabled = true;
+      this.arButton.textContent = 'AR Check Failed';
+      this.showError(`WebXR support check failed: ${error.message}`);
     }
   }
 
@@ -115,9 +157,16 @@ class WebGLARApp {
       this.modelViewer.currentModel = result.model;
       this.currentModel = result;
       
-      // Enable AR button if WebXR is supported
-      if (!this.arButton.disabled) {
+      // Enable AR button based on support and model availability
+      if (this.hasWebXR) {
         this.arButton.disabled = false;
+        this.arButton.textContent = 'Enter AR Mode';
+      } else if (this.isIOS) {
+        // Enable iOS fallback AR simulation
+        this.arButton.disabled = false;
+        this.arButton.textContent = 'AR Simulation';
+        this.arButton.title = 'iOS AR simulation mode (no WebXR)';
+        console.log('📱 iOS AR Simulation now available with loaded model');
       }
       
       // Hide loading
@@ -141,20 +190,27 @@ class WebGLARApp {
     try {
       this.showLoading('Starting AR session...');
       
-      await this.arMode.startARSession();
-      
-      this.isARActive = true;
-      this.arButton.textContent = 'Exit AR';
-      document.body.classList.add('ar-mode');
-      
-      // Set up AR frame loop
-      this.modelViewer.renderer.setAnimationLoop((timestamp, frame) => {
-        if (frame) {
-          this.arMode.onXRFrame(frame);
-        }
-        this.modelViewer.controls.update();
-        this.modelViewer.renderer.render(this.modelViewer.scene, this.modelViewer.camera);
-      });
+      // Check if we should use WebXR or fallback mode
+      if (this.hasWebXR) {
+        // Use real WebXR AR
+        await this.arMode.startARSession();
+        
+        this.isARActive = true;
+        this.arButton.textContent = 'Exit AR';
+        document.body.classList.add('ar-mode');
+        
+        // Set up AR frame loop
+        this.modelViewer.renderer.setAnimationLoop((timestamp, frame) => {
+          if (frame) {
+            this.arMode.onXRFrame(frame);
+          }
+          this.modelViewer.controls.update();
+          this.modelViewer.renderer.render(this.modelViewer.scene, this.modelViewer.camera);
+        });
+      } else {
+        // Use iOS AR simulation
+        this.startARSimulation();
+      }
       
       this.hideLoading();
       
@@ -165,14 +221,88 @@ class WebGLARApp {
     }
   }
 
-  exitAR() {
-    this.arMode.endARSession();
-    this.isARActive = false;
-    this.arButton.textContent = 'Enter AR Mode';
-    document.body.classList.remove('ar-mode');
+  startARSimulation() {
+    console.log('📱 Starting iOS AR Simulation');
     
-    // Reset animation loop
-    this.modelViewer.renderer.setAnimationLoop(null);
+    // Switch to fullscreen mobile-friendly view
+    this.isARActive = true;
+    this.arButton.textContent = 'Exit AR Simulation';
+    document.body.classList.add('ar-mode');
+    
+    // Adjust camera for mobile AR-like view
+    this.modelViewer.camera.position.set(0, 0, 3);
+    this.modelViewer.camera.lookAt(0, 0, 0);
+    
+    // Change background to be more AR-like
+    this.modelViewer.scene.background = new THREE.Color(0x000000);
+    this.modelViewer.scene.background = null; // Transparent background
+    
+    // Add instructions for iOS users
+    this.showError('iOS AR Simulation: Move your device to view the model from different angles. This simulates AR without WebXR.');
+    
+    // Enable device orientation if available
+    if (window.DeviceOrientationEvent) {
+      this.enableDeviceOrientation();
+    }
+  }
+
+  enableDeviceOrientation() {
+    const handleOrientation = (event) => {
+      if (this.isARActive && !this.hasWebXR) {
+        // Use device orientation to simulate AR camera movement
+        const alpha = event.alpha || 0; // Z axis
+        const beta = event.beta || 0;   // X axis
+        const gamma = event.gamma || 0; // Y axis
+        
+        // Apply rotation to camera (simplified AR simulation)
+        this.modelViewer.camera.rotation.x = (beta - 90) * Math.PI / 180;
+        this.modelViewer.camera.rotation.y = alpha * Math.PI / 180;
+        this.modelViewer.camera.rotation.z = gamma * Math.PI / 180;
+      }
+    };
+
+    // Request permission for iOS 13+
+    if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+      DeviceOrientationEvent.requestPermission()
+        .then(response => {
+          if (response == 'granted') {
+            window.addEventListener('deviceorientation', handleOrientation);
+            console.log('📱 Device orientation enabled for AR simulation');
+          }
+        })
+        .catch(console.error);
+    } else {
+      // Non-iOS or older iOS
+      window.addEventListener('deviceorientation', handleOrientation);
+    }
+  }
+
+  exitAR() {
+    if (this.hasWebXR) {
+      this.arMode.endARSession();
+      // Reset animation loop
+      this.modelViewer.renderer.setAnimationLoop(null);
+    } else {
+      // Exit iOS AR simulation
+      console.log('📱 Exiting iOS AR Simulation');
+      
+      // Reset camera position
+      this.modelViewer.camera.position.set(0, 0, 5);
+      this.modelViewer.camera.rotation.set(0, 0, 0);
+      this.modelViewer.controls.reset();
+      
+      // Reset background
+      this.modelViewer.scene.background = new THREE.Color(0xf0f0f0);
+      
+      // Remove device orientation listener
+      window.removeEventListener('deviceorientation', this.handleOrientation);
+      
+      this.hideError();
+    }
+    
+    this.isARActive = false;
+    this.arButton.textContent = this.hasWebXR ? 'Enter AR Mode' : 'AR Simulation';
+    document.body.classList.remove('ar-mode');
   }
 
   createInfoPanel() {
@@ -208,6 +338,84 @@ class WebGLARApp {
 
   hideError() {
     this.errorDiv.style.display = 'none';
+  }
+
+  async toggleDebugInfo() {
+    if (this.debugInfo.style.display === 'none' || !this.debugInfo.style.display) {
+      // Show debug info
+      const debugData = await this.collectDebugInfo();
+      this.debugInfo.textContent = debugData;
+      this.debugInfo.style.display = 'block';
+      this.debugButton.textContent = 'Hide Debug';
+    } else {
+      // Hide debug info
+      this.debugInfo.style.display = 'none';
+      this.debugButton.textContent = 'Debug Info';
+    }
+  }
+
+  async collectDebugInfo() {
+    const info = {
+      // Browser & Environment
+      userAgent: navigator.userAgent,
+      url: window.location.href,
+      protocol: window.location.protocol,
+      
+      // WebXR Status
+      webxrAvailable: 'xr' in navigator,
+      
+      // Device Info
+      platform: navigator.platform,
+      language: navigator.language,
+      cookieEnabled: navigator.cookieEnabled,
+      
+      // Screen Info
+      screenWidth: screen.width,
+      screenHeight: screen.height,
+      windowWidth: window.innerWidth,
+      windowHeight: window.innerHeight,
+      
+      // Performance
+      memory: performance.memory ? {
+        usedJSHeapSize: Math.round(performance.memory.usedJSHeapSize / 1024 / 1024) + 'MB',
+        totalJSHeapSize: Math.round(performance.memory.totalJSHeapSize / 1024 / 1024) + 'MB'
+      } : 'Not available',
+    };
+
+    // Try WebXR detection
+    if ('xr' in navigator) {
+      try {
+        info.arSupported = await navigator.xr.isSessionSupported('immersive-ar');
+        info.vrSupported = await navigator.xr.isSessionSupported('immersive-vr');
+      } catch (error) {
+        info.webxrError = error.message;
+      }
+    }
+
+    return `=== WebGL/AR Debug Info ===
+
+🌐 ENVIRONMENT:
+URL: ${info.url}
+Protocol: ${info.protocol}
+Platform: ${info.platform}
+Language: ${info.language}
+
+📱 DEVICE:
+User Agent: ${info.userAgent}
+Screen: ${info.screenWidth}x${info.screenHeight}
+Window: ${info.windowWidth}x${info.windowHeight}
+
+🥽 WEBXR STATUS:
+WebXR Available: ${info.webxrAvailable}
+AR Supported: ${info.arSupported || 'Unknown'}
+VR Supported: ${info.vrSupported || 'Unknown'}
+${info.webxrError ? `Error: ${info.webxrError}` : ''}
+
+💾 PERFORMANCE:
+Memory: ${typeof info.memory === 'object' ? info.memory.usedJSHeapSize + ' / ' + info.memory.totalJSHeapSize : info.memory}
+
+🔧 TROUBLESHOOTING:
+${info.protocol !== 'https:' ? '❌ HTTPS required for WebXR\n' : '✅ HTTPS detected\n'}${!info.webxrAvailable ? '❌ WebXR not available in browser\n' : '✅ WebXR API detected\n'}${info.arSupported === false ? '❌ AR not supported on this device\n' : ''}${info.arSupported === true ? '✅ AR should work on this device\n' : ''}`;
   }
 }
 

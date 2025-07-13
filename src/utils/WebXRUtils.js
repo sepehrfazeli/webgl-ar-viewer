@@ -1,13 +1,67 @@
 export class WebXRUtils {
   static async checkWebXRSupport() {
-    if (!('xr' in navigator)) {
+    const userAgent = navigator.userAgent;
+    const isHTTPS = location.protocol === 'https:' || location.hostname === 'localhost';
+    
+    // Enhanced detection with more detailed information
+    if (!isHTTPS) {
       return {
         supported: false,
-        reason: 'WebXR not available in this browser'
+        ar: false,
+        vr: false,
+        reason: 'HTTPS required for WebXR (except localhost)'
       };
     }
 
+    if (!('xr' in navigator)) {
+      // Check for specific browsers and provide helpful messages
+      if (/iPhone|iPad|iPod/i.test(userAgent)) {
+        const iOSVersion = userAgent.match(/OS (\d+)_(\d+)/);
+        const majorVersion = iOSVersion ? parseInt(iOSVersion[1]) : 0;
+        
+        if (majorVersion >= 14) {
+          return {
+            supported: false,
+            ar: false,
+            vr: false,
+            reason: `iOS ${majorVersion}: WebXR support is experimental. Try: Settings > Safari > Advanced > Experimental Features > Enable WebXR Device API`
+          };
+        } else {
+          return {
+            supported: false,
+            ar: false,
+            vr: false,
+            reason: `iOS ${majorVersion}: WebXR requires iOS 14.5+ and experimental features enabled`
+          };
+        }
+      } else if (/Android/i.test(userAgent)) {
+        if (/Chrome/i.test(userAgent)) {
+          return {
+            supported: false,
+            ar: false,
+            vr: false,
+            reason: 'Android Chrome: WebXR not detected. Try updating Chrome or enabling WebXR flags'
+          };
+        } else {
+          return {
+            supported: false,
+            ar: false,
+            vr: false,
+            reason: 'Android: WebXR requires Chrome 88+ or other WebXR-enabled browser'
+          };
+        }
+      } else {
+        return {
+          supported: false,
+          ar: false,
+          vr: false,
+          reason: 'WebXR not available in this browser'
+        };
+      }
+    }
+
     try {
+      // Try to check AR support
       const isARSupported = await navigator.xr.isSessionSupported('immersive-ar');
       const isVRSupported = await navigator.xr.isSessionSupported('immersive-vr');
       
@@ -15,11 +69,25 @@ export class WebXRUtils {
         supported: isARSupported || isVRSupported,
         ar: isARSupported,
         vr: isVRSupported,
-        reason: isARSupported || isVRSupported ? 'WebXR supported' : 'No XR sessions supported'
+        reason: isARSupported || isVRSupported ? 'WebXR supported' : 'No XR sessions supported by this device'
       };
     } catch (error) {
+      console.error('WebXR support check error:', error);
+      
+      // Provide more specific error messages
+      if (error.name === 'NotSupportedError') {
+        return {
+          supported: false,
+          ar: false,
+          vr: false,
+          reason: 'WebXR features not supported on this device'
+        };
+      }
+      
       return {
         supported: false,
+        ar: false,
+        vr: false,
         reason: `WebXR check failed: ${error.message}`
       };
     }
